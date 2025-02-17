@@ -83,7 +83,12 @@ batch_size = 64
 num_epochs = 100
 window = 20
 scheduler_step_size = 40
-df = fetch_data('AAPL')
+
+df = None
+while df is None or df.empty:
+    symbol = input('Enter stock symbol: ')
+    df = fetch_data(f'{symbol}')
+
 x,y = prepare_data(df,window)
 x_train, x_val, y_train, y_val = split_data(x = x, y = y, scale = 0.8)
 
