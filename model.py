@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as f
+from matplotlib import pyplot as plt
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from data import fetch_data, prepare_data, split_data
@@ -104,5 +105,29 @@ for epoch in range(num_epochs):
 
     #print('Epoch[{}/{}] | loss train:{:.6f}, test:{:.6f} | lr:{:.6f}'.format(epoch + 1, num_epochs, loss_train, loss_val, lr_train))
 
+dataloader_train = DataLoader(dataset_train, batch_size = batch_size, shuffle = False)
+dataloader_val = DataLoader(dataset_val, batch_size = batch_size, shuffle = False)
+model.eval()
 
+predictions = np.array([])
+for i, (x,y) in enumerate(dataloader_train):
+    x = x.to('cpu')
+    out = model(x)
+    out = out.cpu().detach().numpy()
+    predictions = np.concatenate((predictions, out))
 
+for i, (x,y) in enumerate(dataloader_val):
+    x = x.to('cpu')
+    out = model(x)
+    out = out.cpu().detach().numpy()
+    predictions = np.concatenate((predictions, out))
+
+predictions = (predictions * df['Close'].std().item()) + df['Close'].mean().item()
+
+plt.figure(figsize=(20,12))
+plt.plot(df.index, df['Close'], label = 'Closing Price', color = 'black')
+plt.plot(df.index[window:], predictions, label = 'Predicted Closing Price', color = 'red')
+plt.xlabel('Date')
+plt.ylabel('Price ($USD)')
+plt.legend()
+plt.show()
