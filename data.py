@@ -1,5 +1,6 @@
 import pandas as pd
 import yfinance as yf
+from sklearn.model_selection import TimeSeriesSplit
 
 def fetch_data(stock_symbol: str):
     try:
@@ -32,8 +33,18 @@ def split_data(x, y, scale):
     y_val = y[split_index:]
     return x_train, x_val, y_train, y_val
 
-
-
+def split_data_walk(x,y,n_splits=5):
+    DataSplit = TimeSeriesSplit(n_splits=n_splits)
+    x_train = []
+    x_val = []
+    y_train = []
+    y_val = []
+    for train_index, eval_index in DataSplit.split(x):
+        x_train.append(x[train_index])
+        x_val.append(x[eval_index])
+        y_train.append(y[train_index])
+        y_val.append(y[eval_index])
+    return x_train, x_val, y_train, y_val
 
 
 

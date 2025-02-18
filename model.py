@@ -6,7 +6,7 @@ import torch.nn.functional as f
 from matplotlib import pyplot as plt
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
-from data import fetch_data, prepare_data, split_data
+from data import fetch_data, prepare_data, split_data, split_data_walk
 
 class TimeSeriesDataset(Dataset):
     def __init__(self, x, y):
@@ -90,7 +90,8 @@ while df is None or df.empty:
     df = fetch_data(f'{symbol}')
 
 x,y = prepare_data(df,window)
-x_train, x_val, y_train, y_val = split_data(x = x, y = y, scale = 0.8)
+choice = input('1: 80/20 Training/Evaluation Split\n2:Walk-Forward Split')
+x_train, x_val, y_train, y_val = split_data_walk(x = x, y = y)
 
 dataset_train = TimeSeriesDataset(x_train, y_train)
 dataset_val = TimeSeriesDataset(x_val, y_val)
@@ -105,7 +106,7 @@ scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = scheduler_step_size
 
 for epoch in range(num_epochs):
     loss_train, lr_train = run_epoch(model, dataloader_train, criterion, optimizer, scheduler, is_training = True)
-    loss_val, lr_val = run_epoch(model, dataloader_val, criterion, optimizer, scheduler)
+    loss_val, lr_val = run_epoch(model, dataloader_val, criterion, optimizer, scheduler, is_training = False)
     scheduler.step()
 
     #print('Epoch[{}/{}] | loss train:{:.6f}, test:{:.6f} | lr:{:.6f}'.format(epoch + 1, num_epochs, loss_train, loss_val, lr_train))
