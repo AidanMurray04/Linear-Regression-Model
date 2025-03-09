@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as f
+from sklearn.metrics import r2_score, root_mean_squared_error, mean_absolute_percentage_error
 from matplotlib import pyplot as plt
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
@@ -53,7 +54,7 @@ class Model(nn.Module):
         prediction = self.linear_final(x)
         return prediction[:,-1]
 
-def run_epoch(model, dataloader, criterion, optimizer, scheduler, is_training = False):
+def run_epoch(model, dataloader, criterion, optimizer, scheduler, is_training = False, device = 'cpu'):
     loss = 0
     if is_training:
         model.train()
@@ -65,8 +66,8 @@ def run_epoch(model, dataloader, criterion, optimizer, scheduler, is_training = 
             optimizer.zero_grad()
         batch_size = x.shape[0]
 
-        x = x.to('cpu')
-        y = y.to('cpu')
+        x = x.to(device)
+        y = y.to(device)
 
         output = model(x)
         error = criterion(output, y)
@@ -79,6 +80,9 @@ def run_epoch(model, dataloader, criterion, optimizer, scheduler, is_training = 
 
     return loss, scheduler.get_last_lr()[0]
 
+device = 'cpu'
+nsplits = 5
+scale = 0.80
 batch_size = 64
 num_epochs = 100
 window = 20
@@ -86,54 +90,70 @@ scheduler_step_size = 40
 
 df = None
 while df is None or df.empty:
-    symbol = input('Enter stock symbol: ')
+    #symbol = input('Enter stock symbol: ')
+    symbol = 'aapl'
     df = fetch_data(f'{symbol}')
 
-x,y = prepare_data(df,window)
-choice = input('1: 80/20 Training/Evaluation Split\n2:Walk-Forward Split')
-x_train, x_val, y_train, y_val = split_data_walk(x = x, y = y)
+x_data, y_data = prepare_data(df,window)
+x_train, x_val, y_train, y_val = split_data_walk(x = x_data, y = y_data, n_splits=nsplits)
 
-dataset_train = TimeSeriesDataset(x_train, y_train)
-dataset_val = TimeSeriesDataset(x_val, y_val)
-dataloader_train = DataLoader(dataset_train, batch_size = batch_size, shuffle = True)
-dataloader_val = DataLoader(dataset_val, batch_size = batch_size, shuffle = True)
+for i in range(nsplits):
 
-model = Model()
-model = model.to('cpu')
-criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters())
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = scheduler_step_size, gamma = 0.1)
+    dataset_train = TimeSeriesDataset(x_train[i], y_train[i])
+    dataset_val = TimeSeriesDataset(x_val[i], y_val[i])
+    dataloader_train = DataLoader(dataset_train, batch_size = batch_size, shuffle = True)
+    dataloader_val = DataLoader(dataset_val, batch_size = batch_size, shuffle = True)
 
-for epoch in range(num_epochs):
-    loss_train, lr_train = run_epoch(model, dataloader_train, criterion, optimizer, scheduler, is_training = True)
-    loss_val, lr_val = run_epoch(model, dataloader_val, criterion, optimizer, scheduler, is_training = False)
-    scheduler.step()
+    model = Model()
+    model = model.to(device)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters())
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = scheduler_step_size, gamma = 0.1)
 
-    #print('Epoch[{}/{}] | loss train:{:.6f}, test:{:.6f} | lr:{:.6f}'.format(epoch + 1, num_epochs, loss_train, loss_val, lr_train))
+    for epoch in range(num_epochs):
+        loss_train, lr_train = run_epoch(model, dataloader_train, criterion, optimizer, scheduler, is_training = True)
+        loss_val, lr_val = run_epoch(model, dataloader_val, criterion, optimizer, scheduler, is_training = False)
+        scheduler.step()
 
-dataloader_train = DataLoader(dataset_train, batch_size = batch_size, shuffle = False)
-dataloader_val = DataLoader(dataset_val, batch_size = batch_size, shuffle = False)
-model.eval()
+        #print('Epoch[{}/{}] | loss train:{:.6f}, test:{:.6f} | lr:{:.6f}'.format(epoch + 1, num_epochs, loss_train, loss_val, lr_train))
 
-predictions = np.array([])
-for i, (x,y) in enumerate(dataloader_train):
-    x = x.to('cpu')
-    out = model(x)
-    out = out.cpu().detach().numpy()
-    predictions = np.concatenate((predictions, out))
+    dataloader_train = DataLoader(dataset_train, batch_size = batch_size, shuffle = False)
+    dataloader_val = DataLoader(dataset_val, batch_size = batch_size, shuffle = False)
+    model.eval()
 
-for i, (x,y) in enumerate(dataloader_val):
-    x = x.to('cpu')
-    out = model(x)
-    out = out.cpu().detach().numpy()
-    predictions = np.concatenate((predictions, out))
+    predictions = np.array([])
+    train_predictions = np.array([])
+    for j, (x,y) in enumerate(dataloader_train):
+        x = x.to(device)
+        out = model(x)
+        out = out.cpu().detach().numpy()
+        train_predictions = np.concatenate((train_predictions, out))
 
-predictions = (predictions * df['Close'].std().item()) + df['Close'].mean().item()
+    for j, (x,y) in enumerate(dataloader_val):
+        x = x.to(device)
+        out = model(x)
+        out = out.cpu().detach().numpy()
+        predictions = np.concatenate((predictions, out))
 
-plt.figure(figsize=(20,12))
-plt.plot(df.index, df['Close'], label = 'Closing Price', color = 'black')
-plt.plot(df.index[window:], predictions, label = 'Predicted Closing Price', color = 'red')
-plt.xlabel('Date')
-plt.ylabel('Price ($USD)')
-plt.legend()
-plt.show()
+    train_predictions = (train_predictions * df['Close'].std().item()) + df['Close'].mean().item()
+    predictions = (predictions * df['Close'].std().item()) + df['Close'].mean().item()
+    prices = (np.array(y_val[i]) * df['Close'].std().item()) + df['Close'].mean().item()
+
+    fold_size = len(x_data)//(nsplits + 1)
+    split = (i+1)*fold_size
+
+    plt.figure(figsize=(20,12))
+    plt.plot(df.index, df['Close'], label = 'Closing Price', color = 'black')
+    plt.plot(df.index[window:window + len(predictions) + len(train_predictions)], np.concatenate((train_predictions, predictions)), label = 'Predicted Closing Price', color = 'red')
+    plt.axvline(df.index[split + window], color = 'purple', label = 'Training/Evaluation Data Split', linestyle = '--')
+    plt.xlabel('Date')
+    plt.ylabel('Price ($USD)')
+    plt.legend()
+    plt.show()
+    plt.close()
+
+    metric_window = 90
+    print(f'R^2 {i+1}: {r2_score(predictions[:metric_window], prices[:metric_window])}')
+    print(f'RMSE {i+1}: {root_mean_squared_error(predictions[:metric_window], prices[:metric_window])}')
+    print(f'MAPE {i+1}: {mean_absolute_percentage_error(predictions[:metric_window], prices[:metric_window])}')
+    print(f'RMSE Relative to the mean {i+1}: {root_mean_squared_error(predictions[:metric_window], [np.mean(prices[:metric_window]) for i in range(metric_window)])}\n')

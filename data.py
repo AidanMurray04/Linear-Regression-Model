@@ -1,10 +1,11 @@
 import pandas as pd
 import yfinance as yf
+import numpy as np
 from sklearn.model_selection import TimeSeriesSplit
 
 def fetch_data(stock_symbol: str):
     try:
-        data = yf.download(stock_symbol.upper().strip(), period = '10y', interval = '1d' )
+        data = yf.download(stock_symbol.upper().strip(), period = '10y', interval = '1d')
     except Exception as e:
         print(f'An error occurred while downloading data: {e}')
         return None
@@ -23,7 +24,7 @@ def prepare_data(data: pd.DataFrame, window: int):
     for i in range(len(prices) - window):
         x.append(prices[i:(i + window)])
         y.append(prices[i + window])
-    return x, y
+    return np.array(x), np.array(y)
 
 def split_data(x, y, scale):
     split_index = int(len(x) * scale)
@@ -35,16 +36,17 @@ def split_data(x, y, scale):
 
 def split_data_walk(x,y,n_splits=5):
     DataSplit = TimeSeriesSplit(n_splits=n_splits)
-    x_train = []
-    x_val = []
-    y_train = []
-    y_val = []
-    for train_index, eval_index in DataSplit.split(x):
-        x_train.append(x[train_index])
-        x_val.append(x[eval_index])
-        y_train.append(y[train_index])
-        y_val.append(y[eval_index])
-    return x_train, x_val, y_train, y_val
+    x_train_splits = []
+    x_val_splits = []
+    y_train_splits = []
+    y_val_splits = []
+    for train_index, test_index in DataSplit.split(x):
+        x_train_splits.append(x[train_index])
+        y_train_splits.append(y[train_index])
+        x_val_splits.append(x[test_index])
+        y_val_splits.append(y[test_index])
+
+    return x_train_splits, x_val_splits, y_train_splits, y_val_splits
 
 
 
